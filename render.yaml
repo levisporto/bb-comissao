@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: faturas-total-e-baixas
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    # timeout alto: a coleta na API TOTVS pode levar mais de 30s
+    startCommand: gunicorn app:app --workers 1 --threads 4 --timeout 600 --bind 0.0.0.0:$PORT
+    envVars:
+      - key: TZ
+        value: America/Sao_Paulo
+      - key: LOGO_PATH
+        value: cropped-mascotes-5.png
+      - key: TOTVS_BRANCH_CODES
+        value: "2,19"
+      - key: APP_PASSWORD
+        sync: false
+      - key: TOTVS_BASE_URL
+        sync: false
+      - key: TOTVS_CLIENT_ID
+        sync: false
+      - key: TOTVS_CLIENT_SECRET
+        sync: false
+      - key: TOTVS_USERNAME
+        sync: false
+      - key: TOTVS_PASSWORD
+        sync: false

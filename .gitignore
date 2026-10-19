@@ -1,0 +1,11 @@
+# segredos e dados de clientes: NUNCA subir
+.env
+saida_api/
+*.pdf
+*.xlsx
+*.csv
+
+__pycache__/
+*.pyc
+.venv/
+venv/
