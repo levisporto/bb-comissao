@@ -1,0 +1,60 @@
+{% set res = r.resumo %}
+<div class="card-head">
+  <h1>Faturas com vencimento de {{ ini|data }} a {{ fim|data }}<span class="info" id="info">{{ res.clientes }} clientes · {{ res.faturas }} compras</span></h1>
+  {% if r.corretores %}<a class="btn btn-red" id="pdf" data-job="{{ job }}" href="/pdf/{{ job }}?venc_ini={{ ini }}&venc_fim={{ fim }}" title="PDF completo do período: os filtros da tela não se aplicam">Exportar PDF</a>{% endif %}
+</div>
+<div class="erro" id="erro" hidden></div>
+{% if r.corretores %}
+<div class="resumo">
+  <div class="kpi"><span>Clientes / compras</span><b id="k-qtd">{{ res.clientes }} / {{ res.faturas }}</b></div>
+  <div class="kpi"><span>Parcialmente pagas</span><b id="k-parc">{{ res.parciais }}</b></div>
+  <div class="kpi"><span>Vendido</span><b id="k-vend">R$ {{ res.vendido|moeda }}</b></div>
+  <div class="kpi"><span>Baixado</span><b id="k-baix">R$ {{ res.baixado|moeda }}</b></div>
+  <div class="kpi"><span>Saldo em aberto</span><b id="k-saldo">R$ {{ res.saldo|moeda }}</b></div>
+</div>
+<div class="wrap">
+<table id="t">
+  <colgroup><col style="width:60px"><col style="width:105px"><col style="width:105px"><col style="width:55px"><col style="width:95px"><col style="width:105px"><col style="width:65px"><col style="width:125px"><col style="width:125px"><col style="width:125px"><col style="width:100px"><col style="width:95px"></colgroup>
+  <thead><tr>
+    <th class="l">Emp</th><th class="l">Vencimento</th><th class="l">Emissão</th><th>Prz</th><th>Nr. Fat</th><th>Transação</th><th>Oper</th>
+    <th>Vl. vendido</th><th>Vl. baixado</th><th>Saldo</th><th>Últ. baixa</th><th class="c">Situação</th>
+  </tr></thead>
+  {% for g in r.corretores %}
+  <tbody class="cab" data-cor="{{ g.nome }}"><tr class="f-cor"><td colspan="12" class="l">{{ g.nome }}</td></tr></tbody>
+  {% for c in g.clientes %}
+  <tbody class="cliente" data-cd="{{ c.cd }}">
+    <tr class="f-cli"><td colspan="12" class="l">CD: {{ c.cd }} - {{ c.nome }} - Cpfcnpj: {{ c.doc }}{% if c.status %} - Status: {{ c.status|upper }}{% endif %}</td></tr>
+    {% for f in c.faturas %}
+    <tr class="fat{{ ' parcial' if f['Situação'] == 'Parcialmente paga' }}" data-sit="{{ f['Situação'] }}"
+        data-q="{{ f['Nr. Fat / NF'] }} {{ f['Transação'] }}"
+        data-vend="{{ f['Valor vendido'] }}" data-baix="{{ f['Total baixado'] }}" data-saldo="{{ f['Saldo em aberto'] }}">
+      <td class="l">{{ f['Empresa'] or '' }}</td><td class="l">{{ f['Vencimento']|data }}</td><td class="l">{{ f['Emissão']|data }}</td>
+      <td>{{ f['Prz'] or '' }}</td><td>{{ f['Nr. Fat / NF']|milhar }}</td><td>{{ f['Transação']|milhar }}</td><td>{{ f['Cód. Oper'] or '' }}</td>
+      <td>{{ f['Valor vendido']|moeda }}</td><td>{{ f['Total baixado']|moeda }}</td><td class="forte">{{ f['Saldo em aberto']|moeda }}</td>
+      <td>{{ f['Última baixa']|data }}</td>
+      <td class="c"><span class="pill {{ {'Quitada': 'ok', 'Parcialmente paga': 'warn'}.get(f['Situação'], 'bad') }}">{{ SIT.get(f['Situação'], f['Situação']) }}</span></td>
+    </tr>
+    {% for b in f.baixas %}
+    <tr class="baixa">
+      <td></td><td colspan="3" class="l">baixa em {{ b['Data baixa']|data }}</td>
+      <td colspan="3" class="l">parc. {{ b['Parcela'] }}{% if b['Parcela origem'] %} (origem {{ b['Parcela origem'] }}){% endif %}</td>
+      <td></td><td>{{ b['Valor baixado']|moeda }}</td><td colspan="3" class="l">{{ b['Tipo de baixa'] or '' }}</td>
+    </tr>
+    {% endfor %}
+    {% endfor %}
+    <tr class="sub"><td colspan="7" class="l">Sub-total cliente (<span class="qtd">{{ c.faturas|length }} compra{{ 's' if c.faturas|length != 1 }}</span>)</td>
+      <td>{{ c.sub[0]|moeda }}</td><td>{{ c.sub[1]|moeda }}</td><td>{{ c.sub[2]|moeda }}</td><td colspan="2"></td></tr>
+  </tbody>
+  {% endfor %}
+  <tbody class="rod"><tr class="sub-cor"><td colspan="7" class="l">Sub-total {{ g.nome }}</td>
+    <td>{{ g.sub[0]|moeda }}</td><td>{{ g.sub[1]|moeda }}</td><td>{{ g.sub[2]|moeda }}</td><td colspan="2"></td></tr></tbody>
+  {% endfor %}
+  <tfoot><tr><td colspan="7" class="l">Total geral</td>
+    <td id="t-vend">{{ r.total[0]|moeda }}</td><td id="t-baix">{{ r.total[1]|moeda }}</td><td id="t-saldo">{{ r.total[2]|moeda }}</td><td colspan="2"></td></tr></tfoot>
+</table>
+<div class="vazio" id="sem-linhas" hidden>Nenhuma fatura com esses filtros.</div>
+</div>
+<div class="legenda"><i></i> fatura com baixa parcial (no 0434 aparece com Transação 0)</div>
+{% else %}
+<div class="vazio">Nenhuma fatura de venda com vencimento nesse período.</div>
+{% endif %}

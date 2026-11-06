@@ -99,7 +99,8 @@ SIT_CURTA = {"Em aberto": "ABERTA", "Parcialmente paga": "PARCIAL", "Quitada": "
 # Montagem das linhas
 # ----------------------------------------------------------------------------
 
-def construir_story(faturas: list[dict], baixas: list[dict]):
+def montar_relatorio(faturas: list[dict], baixas: list[dict]) -> dict:
+    """Corretor > cliente > faturas (com as baixas) e subtotais: o que o PDF e a tela mostram."""
     baixas_por_fat: dict[tuple, list] = {}
     for b in baixas:
         baixas_por_fat.setdefault((b["CD cliente"], b["Nr. Fat / NF"]), []).append(b)
@@ -116,16 +117,44 @@ def construir_story(faturas: list[dict], baixas: list[dict]):
         alvo = {c.strip().upper() for c in ARGS.corretor}
         vendas = [f for f in vendas if (f["Corretor"] or "").upper() in alvo]
 
-    story = []
-    tot = [0.0, 0.0, 0.0]
     corretores: dict[str, dict[tuple, list]] = {}
     for f in vendas:
         corretores.setdefault(f["Corretor"] or "(sem corretor)", {}).setdefault(
             (f["CD cliente"], f["Cliente"], f["CPF/CNPJ"], f.get("Status cliente")), []).append(f)
 
+    grupos = []
+    tot = [0.0, 0.0, 0.0]
     for corretor, clientes in sorted(corretores.items()):
-        linhas, estilo = [], []
+        lista = []
         sub_cor = [0.0, 0.0, 0.0]
+        for (cd, nome, doc, status), fats in sorted(clientes.items(), key=lambda kv: str(kv[0][1])):
+            linhas = []
+            sub_cli = [0.0, 0.0, 0.0]
+            for f in sorted(fats, key=lambda x: (str(x["Vencimento"]), str(x["Nr. Fat / NF"]))):
+                sub_cli = [a + b for a, b in zip(sub_cli, (f["Valor vendido"], f["Total baixado"],
+                                                           f["Saldo em aberto"]))]
+                historico = []
+                if not ARGS.sem_baixas and f["Total baixado"] > 0:
+                    historico = sorted(baixas_por_fat.get((f["CD cliente"], f["Nr. Fat / NF"]), []),
+                                       key=lambda x: (str(x["Data baixa"]), x["Parcela"] or 0))
+                linhas.append({**f, "baixas": historico})
+            lista.append({"cd": cd, "nome": nome, "doc": doc, "status": status, "faturas": linhas, "sub": sub_cli})
+            sub_cor = [a + b for a, b in zip(sub_cor, sub_cli)]
+        grupos.append({"nome": corretor, "clientes": lista, "sub": sub_cor})
+        tot = [a + b for a, b in zip(tot, sub_cor)]
+
+    resumo = {"faturas": len(vendas), "vendido": tot[0], "baixado": tot[1], "saldo": tot[2],
+              "parciais": sum(1 for f in vendas if f["Situação"] == "Parcialmente paga"),
+              "corretores": len(corretores),
+              "clientes": len({f["CD cliente"] for f in vendas})}
+    return {"corretores": grupos, "total": tot, "resumo": resumo}
+
+
+def construir_story(rel: dict) -> list:
+    story = []
+    for grupo in rel["corretores"]:
+        corretor = grupo["nome"]
+        linhas, estilo = [], []
 
         def add(row, *cmds):
             linhas.append(row)
@@ -138,14 +167,14 @@ def construir_story(faturas: list[dict], baixas: list[dict]):
             ("FONTSIZE", TAM + 1))
 
         manter_juntos = []
-        for n_cli, ((cd, nome, doc, status), fats) in enumerate(sorted(clientes.items(), key=lambda kv: str(kv[0][1]))):
+        for n_cli, cli in enumerate(grupo["clientes"]):
             ini_cli = 0 if n_cli == 0 else len(linhas)   # 1º cliente fica junto da faixa do corretor
-            st = f" - Status: {str(status).upper()}" if status else ""
-            add([f"CD: {cd} - {nome} - Cpfcnpj: {doc}{st}"] + [""] * (len(COLS) - 1),
+            st = f" - Status: {str(cli['status']).upper()}" if cli["status"] else ""
+            add([f"CD: {cli['cd']} - {cli['nome']} - Cpfcnpj: {cli['doc']}{st}"] + [""] * (len(COLS) - 1),
                 ("SPAN",), ("BACKGROUND", AZUL), ("FONTNAME", FONTE_B), ("ALIGN", "CENTER"))
             add(COLS, ("FONTNAME", FONTE_B), ("LINEBELOW", 0.3, colors.black))
-            sub_cli = [0.0, 0.0, 0.0]
-            for f in sorted(fats, key=lambda x: (str(x["Vencimento"]), str(x["Nr. Fat / NF"]))):
+            fats = cli["faturas"]
+            for f in fats:
                 parcial = f["Situação"] == "Parcialmente paga"
                 cmds = [("BACKGROUND", DESTAQUE)] if parcial else []
                 add([str(f.get("Empresa") or ""),
@@ -155,25 +184,21 @@ def construir_story(faturas: list[dict], baixas: list[dict]):
                      dt(f["Última baixa"]), SIT_CURTA.get(f["Situação"], f["Situação"])], *cmds)
                 if len(manter_juntos) == n_cli:          # 1ª fatura do cliente: prende ao cabeçalho
                     manter_juntos.append((ini_cli, len(linhas) - 1))
-                sub_cli = [a + b for a, b in zip(sub_cli, (f["Valor vendido"], f["Total baixado"],
-                                                           f["Saldo em aberto"]))]
-                if not ARGS.sem_baixas and f["Total baixado"] > 0:
-                    for b in sorted(baixas_por_fat.get((f["CD cliente"], f["Nr. Fat / NF"]), []),
-                                    key=lambda x: (str(x["Data baixa"]), x["Parcela"] or 0)):
-                        origem = f" (origem {b['Parcela origem']})" if b.get("Parcela origem") else ""
-                        add(["", f"   baixa em {dt(b['Data baixa'])}", "", "", f"parc. {b['Parcela']}{origem}",
-                             "", "", "", moeda(b["Valor baixado"]), "", "", b["Tipo de baixa"] or ""],
-                            ("TEXTCOLOR", colors.HexColor("#555555")), ("FONTSIZE", TAM - 1),
-                            ("SPAN_TXT",))
+                for b in f["baixas"]:
+                    origem = f" (origem {b['Parcela origem']})" if b.get("Parcela origem") else ""
+                    add(["", f"   baixa em {dt(b['Data baixa'])}", "", "", f"parc. {b['Parcela']}{origem}",
+                         "", "", "", moeda(b["Valor baixado"]), "", "", b["Tipo de baixa"] or ""],
+                        ("TEXTCOLOR", colors.HexColor("#555555")), ("FONTSIZE", TAM - 1),
+                        ("SPAN_TXT",))
+            sub_cli = cli["sub"]
             add([f"SUB-TOTAL CLIENTE ({len(fats)} compra{'s' if len(fats) != 1 else ''}) ->", "", "", "", "", "", "",
                  moeda(sub_cli[0]), moeda(sub_cli[1]), moeda(sub_cli[2]), "", ""],
                 ("FONTNAME", FONTE_B), ("FONTSIZE", TAM + 1), ("LINEABOVE", 0.3, colors.black))
-            sub_cor = [a + b for a, b in zip(sub_cor, sub_cli)]
 
+        sub_cor = grupo["sub"]
         add([f"SUB-TOTAL {corretor} ->", "", "", "", "", "", "",
              moeda(sub_cor[0]), moeda(sub_cor[1]), moeda(sub_cor[2]), "", ""],
             ("BACKGROUND", CINZA), ("TEXTCOLOR", colors.white), ("FONTNAME", FONTE_B), ("FONTSIZE", TAM + 1))
-        tot = [a + b for a, b in zip(tot, sub_cor)]
 
         # converte comandos simplificados em TableStyle
         ts = [("FONTNAME", (0, 0), (-1, -1), FONTE), ("FONTSIZE", (0, 0), (-1, -1), TAM),
@@ -205,18 +230,14 @@ def construir_story(faturas: list[dict], baixas: list[dict]):
         story.append(Spacer(1, 3 * mm))
 
     # total geral
+    tot = rel["total"]
     t = Table([["TOTAL GERAL ->", "", "", "", "", "", "", moeda(tot[0]), moeda(tot[1]), moeda(tot[2]), "", ""]],
               colWidths=LARG)
     t.setStyle(TableStyle([("SPAN", (0, 0), (6, 0)), ("FONTNAME", (0, 0), (-1, -1), FONTE_B),
                            ("FONTSIZE", (0, 0), (-1, -1), TAM + 2), ("ALIGN", (7, 0), (9, 0), "RIGHT"),
                            ("BACKGROUND", (0, 0), (-1, -1), colors.black), ("TEXTCOLOR", (0, 0), (-1, -1), colors.white)]))
     story.append(KeepTogether([t]))
-
-    resumo = {"faturas": len(vendas), "vendido": tot[0], "baixado": tot[1], "saldo": tot[2],
-              "parciais": sum(1 for f in vendas if f["Situação"] == "Parcialmente paga"),
-              "corretores": len(corretores),
-              "clientes": len({f["CD cliente"] for f in vendas})}
-    return story, resumo
+    return story
 
 
 # ----------------------------------------------------------------------------
@@ -287,24 +308,40 @@ def nome_arquivo(agora: datetime) -> str:
     return f"{nome}_{venc}_{agora:%Y-%m-%d_%H%M}.pdf"
 
 
-def gerar(destino, agora: datetime) -> dict:
-    """Busca na API e grava o PDF em `destino` (caminho ou arquivo em memória). Devolve o resumo."""
-    linhas = RF.coletar()
-    faturas, baixas = RF.agrupar(linhas)
-    story, resumo = construir_story(faturas, baixas)
+def obter_relatorio() -> dict:
+    """Busca na API e monta o relatório."""
+    faturas, baixas = RF.agrupar(RF.coletar())
+    return montar_relatorio(faturas, baixas)
+
+
+def escrever_pdf(destino, rel: dict, agora: datetime, ao_paginar=None) -> None:
+    """Grava o PDF em `destino` (caminho ou arquivo em memória). `ao_paginar(n)` é chamada a cada página."""
+    story = construir_story(rel)
     doc = SimpleDocTemplate(destino, pagesize=landscape(A4), leftMargin=12 * mm, rightMargin=12 * mm,
                             topMargin=37 * mm, bottomMargin=15 * mm,
                             title="Faturas em Aberto (Atacado) - Total e Baixas", author="Bebêtenkitê")
-    pintar = cabecalho_rodape(resumo, agora)
-    doc.build(story, onFirstPage=pintar, onLaterPages=pintar)
-    return resumo
+    pintar = cabecalho_rodape(rel["resumo"], agora)
+
+    def pagina(canv, d):
+        pintar(canv, d)
+        if ao_paginar:
+            ao_paginar(d.page)
+
+    doc.build(story, onFirstPage=pagina, onLaterPages=pagina)
+
+
+def gerar(destino, agora: datetime) -> dict:
+    """Busca na API e grava o PDF. Devolve o relatório."""
+    rel = obter_relatorio()
+    escrever_pdf(destino, rel, agora)
+    return rel
 
 
 def main() -> None:
     agora = datetime.now()
     S.SAIDA.mkdir(exist_ok=True)
     arq = S.SAIDA / nome_arquivo(agora)
-    resumo = gerar(str(arq), agora)
+    resumo = gerar(str(arq), agora)["resumo"]
     print(f"\n✔ {resumo['faturas']} faturas | {resumo['corretores']} corretores | "
           f"vendido R$ {moeda(resumo['vendido'])} | baixado R$ {moeda(resumo['baixado'])} | "
           f"saldo R$ {moeda(resumo['saldo'])} | {resumo['parciais']} parcialmente pagas")

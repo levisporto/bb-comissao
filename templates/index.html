@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Faturas do atacado</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f3f4f6; --card: #fff; --line: #e5e7eb; --line-soft: #eef0f3;
+    --text: #1f2937; --muted: #6b7280; --head-bg: #f1f3f6; --head-text: #4b5563;
+    --red: #d32f3a; --red-dark: #b9252f;
+    --ok-bg: #dcfce7; --ok: #15803d; --bad-bg: #fee2e2; --bad: #dc2626; --warn-bg: #fef9c3; --warn: #a16207;
+    --faixa-cor: #fef9c3; --faixa-cli: #e4eef8; --parcial: #fff2cc; --sub-cor: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { font-family: Inter, "Segoe UI", sans-serif; font-size: 13px; margin: 0; background: var(--bg); color: var(--text); }
+  main { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+
+  .titulo { font-size: 18px; font-weight: 700; text-transform: uppercase; color: #111827; margin: 8px 0 0; letter-spacing: -.01em; }
+
+  /* filtros */
+  .filtros { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; }
+  .campo { display: flex; flex-direction: column; gap: 6px; }
+  .campo label { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--head-text); }
+  .campo select, .campo input {
+    font: inherit; font-size: 12px; color: var(--text);
+    height: 34px; padding: 0 12px; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; min-width: 130px;
+  }
+  .campo select { text-transform: uppercase; }
+  .campo input#busca { min-width: 260px; }
+  .campo select:focus, .campo input:focus { outline: 2px solid #c7d2fe; border-color: #a5b4fc; }
+  .btn { font: inherit; font-size: 12px; font-weight: 700; text-transform: uppercase; height: 34px; padding: 0 16px;
+         border: 0; border-radius: 6px; color: #fff; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; }
+  .btn-red { background: var(--red); } .btn-red:hover { background: var(--red-dark); }
+  .btn-ghost { background: #fff; color: var(--head-text); border: 1px solid #d1d5db; padding: 0 10px; }
+  .btn-ghost:hover { background: #f9fafb; }
+  .btn[aria-disabled="true"], .btn:disabled { opacity: .6; pointer-events: none; }
+
+  /* card */
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px 0 0; display: flex; flex-direction: column; min-height: 0; }
+  .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 24px 14px; flex-wrap: wrap; }
+  .card-head h1 { font-size: 13px; font-weight: 700; text-transform: uppercase; margin: 0; color: #374151; }
+  .card-head .info { font-size: 12px; color: var(--muted); margin-left: 10px; font-weight: 400; text-transform: none; }
+  .wrap { overflow: auto; max-height: calc(100vh - 335px); min-height: 200px; margin: 0 24px; scrollbar-width: thin; }
+
+  /* resumo */
+  .resumo { display: flex; flex-wrap: wrap; gap: 10px; padding: 0 24px 14px; }
+  .kpi { flex: 1 1 150px; border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; }
+  .kpi span { display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--head-text); }
+  .kpi b { display: block; margin-top: 3px; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  /* carregando */
+  .carregando { padding: 28px 24px 32px; max-width: 520px; }
+  .linha { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--head-text); }
+  .linha span:last-child { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .spin { width: 16px; height: 16px; border: 2px solid #f3c9cc; border-top-color: var(--red);
+          border-radius: 50%; animation: gira .8s linear infinite; flex: none; }
+  @keyframes gira { to { transform: rotate(360deg); } }
+  .btn .spin { width: 12px; height: 12px; margin-right: 8px; border-color: rgba(255, 255, 255, .4); border-top-color: #fff; }
+  .barra { height: 8px; background: #f1f2f4; border-radius: 4px; overflow: hidden; margin-top: 10px; }
+  .barra div { height: 100%; width: 0; background: var(--red); border-radius: 4px; transition: width .4s; }
+  .erro { background: var(--bad-bg); color: #8a1f1f; padding: 10px 12px; border-radius: 6px; font-size: 12px;
+          margin: 0 24px 24px; white-space: pre-wrap; }
+
+  /* tabela: mesma hierarquia e cores do PDF (corretor > cliente > faturas > baixas) */
+  /* layout fixo: sem ele, cada filtro recalcula as colunas em todas as linhas e a tela trava em períodos grandes */
+  table { border-collapse: separate; border-spacing: 0; white-space: nowrap; width: 100%; min-width: 1160px; table-layout: fixed;
+          font-variant-numeric: tabular-nums; }
+  th, td { padding: 7px 12px; border-bottom: 1px solid var(--line-soft); text-align: right; }
+  th { background: var(--head-bg); color: var(--head-text); font-size: 11px; font-weight: 600; text-transform: uppercase;
+       position: sticky; top: 0; z-index: 2; border-bottom-color: var(--line); }
+  th.l, td.l { text-align: left; }
+  th.c, td.c { text-align: center; }
+  .f-cor td { background: var(--faixa-cor); font-weight: 700; text-transform: uppercase; padding-top: 10px; padding-bottom: 10px; }
+  .f-cli td { background: var(--faixa-cli); font-weight: 600; font-size: 12px; }
+  .fat:hover td { background: #fafbfc; }
+  .fat.parcial td { background: var(--parcial); }
+  .baixa td { font-size: 11px; color: var(--muted); padding-top: 3px; padding-bottom: 3px; }
+  .baixa td:nth-child(2) { padding-left: 24px; }
+  .sub td { font-weight: 600; border-bottom-color: var(--line); }
+  .sub-cor td { background: var(--sub-cor); color: #fff; font-weight: 700; }
+  .forte { font-weight: 600; }
+  .pill { display: inline-block; padding: 2px 7px; border-radius: 999px; font-size: 11px; font-weight: 500; line-height: 16px; }
+  .ok { background: var(--ok-bg); color: var(--ok); }
+  .bad { background: var(--bad-bg); color: var(--bad); }
+  .warn { background: var(--warn-bg); color: var(--warn); }
+  tfoot td { background: #1f2937; color: #fff; font-weight: 700; position: sticky; bottom: 0; z-index: 2; }
+  .vazio { color: var(--muted); font-size: 12px; padding: 8px 24px 24px; }
+  .legenda { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); padding: 10px 24px 16px; }
+  .legenda i { width: 14px; height: 10px; background: var(--parcial); border: 1px solid #e8d9a0; }
+  @media (max-width: 600px) {
+    main { padding: 16px 16px; }
+    .campo, .campo select, .campo input, .campo input#busca { width: 100%; min-width: 0; }
+    .card-head, .resumo, .carregando, .vazio, .legenda { padding-left: 16px; padding-right: 16px; }
+    .wrap { margin: 0 16px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1 class="titulo">🐵 Bebêtenkitê - Faturas do atacado</h1>
+  <form class="filtros" id="filtros">
+    <div class="campo"><label for="ini">Vencimento de</label>
+      <input id="ini" name="venc_ini" type="date" value="{{ ini }}" required></div>
+    <div class="campo"><label for="fim">Até</label>
+      <input id="fim" name="venc_fim" type="date" value="{{ fim }}" required></div>
+    <button class="btn btn-red" id="b">Consultar</button>
+    <div class="campo"><label for="corr">Corretor</label>
+      <select id="corr"><option value="">Todos os corretores</option></select></div>
+    <div class="campo"><label for="sit">Situação</label>
+      <select id="sit">
+        <option value="">Todas</option><option value="Em aberto">Aberta</option>
+        <option value="Parcialmente paga">Parcial</option><option value="Quitada">Quitada</option>
+      </select></div>
+    <div class="campo"><label for="busca">Busca</label>
+      <input id="busca" placeholder="Cliente, CNPJ, fatura, transação…"></div>
+    <a class="btn btn-ghost" href="/sair" style="margin-left: auto">Sair</a>
+  </form>
+
+  <section class="card" id="card">
+    <div class="card-head">
+      <h1>Faturas do atacado{% if consultar %}<span class="info">carregando…</span>{% endif %}</h1>
+      <a class="btn btn-red" aria-disabled="true">Exportar PDF</a>
+    </div>
+    {% if consultar %}
+    <div class="carregando" id="prog">
+      <div class="linha"><div class="spin"></div><span id="etapa">Iniciando…</span><span id="pct">0%</span></div>
+      <div class="barra"><div id="barra"></div></div>
+    </div>
+    {% else %}
+    <div class="vazio">Escolha o vencimento e clique em Consultar. Período de no máximo 6 meses (limite do TOTVS).</div>
+    {% endif %}
+    <div class="erro" id="erro" hidden></div>
+  </section>
+</main>
+<script>
+  // TOTVS só aceita períodos de até 6 meses: "até" fica entre "de" e "de" + 6 meses - 1 dia
+  function limite(s) {
+    const [y, m, d] = s.split("-").map(Number);
+    const ultimo = new Date(Date.UTC(y, m + 6, 0)).getUTCDate();  // último dia do mês alvo
+    return new Date(Date.UTC(y, m - 1 + 6, Math.min(d, ultimo)) - 864e5).toISOString().slice(0, 10);
+  }
+  function ajustarFim() {
+    if (!ini.value) return;
+    fim.min = ini.value; fim.max = limite(ini.value);
+    if (fim.value > fim.max) fim.value = fim.max;
+    if (fim.value && fim.value < fim.min) fim.value = fim.min;
+  }
+  ini.addEventListener("change", ajustarFim);
+  ajustarFim();
+
+  const espera = ms => new Promise(r => setTimeout(r, ms));
+  const mostrar = (p, txt) => {
+    barra.style.width = p + "%"; pct.textContent = Math.floor(p) + "%"; etapa.textContent = txt;
+  };
+
+  async function carregar() {
+    const dados = new FormData();
+    dados.set("venc_ini", {{ ini|tojson }}); dados.set("venc_fim", {{ fim|tojson }});
+    b.disabled = true;
+    try {
+      let r = await fetch("/carregar", { method: "POST", body: dados });
+      if (!r.ok) throw new Error(await r.text());
+      const { job } = await r.json();
+      for (;;) {
+        await espera(1000);
+        r = await fetch("/progresso/" + job);
+        if (!r.ok) throw new Error("Perdi o acompanhamento da busca. Atualize a página.");
+        const s = await r.json();
+        if (s.erro) throw new Error(s.erro);
+        mostrar(s.pct, s.etapa);
+        if (s.pronto) break;
+      }
+      r = await fetch("/tabela/" + job);
+      if (!r.ok) throw new Error("Não consegui montar a tabela. Atualize a página.");
+      card.innerHTML = await r.text();
+      ativarTabela();
+      {% if baixar %}document.getElementById("pdf")?.click();  // veio de um "Exportar PDF" de consulta expirada{% endif %}
+
+    } catch (e) {
+      prog.hidden = true;
+      erro.textContent = e.message || "Falha de conexão.";
+      erro.hidden = false;
+    } finally {
+      b.disabled = false;
+    }
+  }
+
+  // o PDF só é montado aqui, a pedido: pode levar minutos e a tabela não espera por ele
+  async function exportar(ev) {
+    ev.preventDefault();
+    const a = ev.currentTarget, job = a.dataset.job, rotulo = a.textContent;
+    const escrever = txt => { a.innerHTML = '<span class="spin"></span>' + txt; };
+    a.setAttribute("aria-disabled", "true");
+    erro.hidden = true;
+    escrever("Gerando PDF…");
+    try {
+      let r = await fetch(`/pdf/${job}/gerar`, { method: "POST" });
+      if (r.status === 404) { location.href = a.href; return; }  // consulta expirou: refaz e baixa
+      if (!r.ok) throw new Error(await r.text());
+      for (;;) {
+        r = await fetch("/progresso/" + job);
+        if (r.status === 404) { location.href = a.href; return; }
+        if (!r.ok) throw new Error("Perdi o acompanhamento do PDF. Tente de novo.");
+        const s = await r.json();
+        if (s.pdf_erro) throw new Error(s.pdf_erro);
+        if (s.pdf_pronto) break;
+        if (s.pdf_pag) escrever(`Gerando PDF… pág. ${s.pdf_pag}`);
+        await espera(1000);
+      }
+      location.href = a.href;
+    } catch (e) {
+      erro.textContent = e.message || "Falha de conexão.";
+      erro.hidden = false;
+    } finally {
+      a.textContent = rotulo;
+      a.removeAttribute("aria-disabled");
+    }
+  }
+
+  function ativarTabela() {
+    document.getElementById("pdf")?.addEventListener("click", exportar);
+    const t = document.getElementById("t");
+    if (!t) return;
+    const $ = id => document.getElementById(id);
+    const info = $("info"), infoOrig = info.textContent;
+    const fmt = new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const somar = (a, b) => a.map((x, i) => x + b[i]);
+    const pintar = (tds, v) => tds.forEach((td, i) => { td.textContent = fmt.format(v[i]); });
+
+    // corretor > cliente > fatura, lidos do que o servidor desenhou
+    const grupos = [];
+    for (const tb of t.tBodies) {
+      if (tb.classList.contains("cab")) {
+        grupos.push({ nome: tb.dataset.cor, cab: tb, clientes: [] });
+      } else if (tb.classList.contains("rod")) {
+        const g = grupos[grupos.length - 1];
+        g.rod = tb; g.sub = [...tb.rows[0].cells].slice(1, 4);
+      } else {
+        const g = grupos[grupos.length - 1], linhaSub = tb.querySelector(".sub"), faturas = [];
+        for (const tr of tb.rows) {
+          if (tr.classList.contains("fat")) {
+            faturas.push({ tr, baixas: [], sit: tr.dataset.sit, parcial: tr.classList.contains("parcial"),
+                           v: [+tr.dataset.vend, +tr.dataset.baix, +tr.dataset.saldo],
+                           txt: (tr.textContent + " " + tr.dataset.q).toLowerCase() });
+          } else if (tr.classList.contains("baixa")) {
+            faturas[faturas.length - 1].baixas.push(tr);
+          }
+        }
+        g.clientes.push({ tb, cd: tb.dataset.cd, faturas, qtd: linhaSub.querySelector(".qtd"),
+                          sub: [...linhaSub.cells].slice(1, 4),
+                          txt: (g.nome + " " + tb.rows[0].textContent).toLowerCase() });
+      }
+    }
+    const totalFaturas = grupos.reduce((n, g) => n + g.clientes.reduce((m, c) => m + c.faturas.length, 0), 0);
+    grupos.forEach(g => $("corr").add(new Option(g.nome, g.nome)));
+
+    // filtros só escondem linhas; subtotais, resumo e total acompanham o que está visível
+    function filtrar() {
+      const q = $("busca").value.trim().toLowerCase(), cor = $("corr").value, sit = $("sit").value;
+      const clientes = new Set();
+      let total = [0, 0, 0], nFat = 0, nParc = 0;
+      for (const g of grupos) {
+        let subCor = [0, 0, 0], algum = false;
+        for (const c of g.clientes) {
+          let subCli = [0, 0, 0], n = 0;
+          for (const f of c.faturas) {
+            const ok = (!cor || g.nome === cor) && (!sit || f.sit === sit)
+                       && (!q || c.txt.includes(q) || f.txt.includes(q));
+            f.tr.hidden = !ok;
+            f.baixas.forEach(b => { b.hidden = !ok; });
+            if (!ok) continue;
+            n++; subCli = somar(subCli, f.v);
+            if (f.parcial) nParc++;
+          }
+          c.tb.hidden = !n;
+          if (!n) continue;
+          algum = true; clientes.add(c.cd); nFat += n;
+          c.qtd.textContent = `${n} compra${n === 1 ? "" : "s"}`;
+          pintar(c.sub, subCli);
+          subCor = somar(subCor, subCli);
+        }
+        g.cab.hidden = g.rod.hidden = !algum;
+        if (algum) pintar(g.sub, subCor);
+        total = somar(total, subCor);
+      }
+      pintar([$("t-vend"), $("t-baix"), $("t-saldo")], total);
+      $("k-qtd").textContent = `${clientes.size} / ${nFat}`;
+      $("k-parc").textContent = nParc;
+      [$("k-vend"), $("k-baix"), $("k-saldo")].forEach((el, i) => { el.textContent = "R$ " + fmt.format(total[i]); });
+      info.textContent = (q || cor || sit) ? `${nFat} de ${totalFaturas} compras` : infoOrig;
+      t.tFoot.hidden = !nFat;
+      $("sem-linhas").hidden = !!nFat;
+    }
+    $("busca").addEventListener("input", filtrar);
+    $("corr").addEventListener("change", filtrar);
+    $("sit").addEventListener("change", filtrar);
+  }
+
+  {% if consultar %}carregar();{% endif %}
+
+</script>
+</body>
+</html>
